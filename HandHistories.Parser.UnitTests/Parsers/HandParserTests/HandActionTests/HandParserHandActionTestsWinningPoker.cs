@@ -14,6 +14,37 @@ namespace HandHistories.Parser.UnitTests.Parsers.HandParserTests.HandActionTests
         }
 
         [Test]
+        public void WaitingBB_Works()
+        {
+            List<HandAction> expectedActions = new List<HandAction>()
+                {
+                    new HandAction("Aquasces1", HandActionType.SMALL_BLIND, 2m, Street.Preflop),
+                    new HandAction("COMON-JOE-JUG", HandActionType.BIG_BLIND, 4m, Street.Preflop),
+                    new HandAction("888game888", HandActionType.POSTS, 2m, Street.Preflop),
+
+                    new HandAction("888game888", HandActionType.CALL, 2m, Street.Preflop),
+                    new HandAction("Commons", HandActionType.FOLD, 0m, Street.Preflop),
+                    new HandAction("Aquasces1", HandActionType.RAISE, 14m, Street.Preflop),
+                    new HandAction("COMON-JOE-JUG", HandActionType.CALL, 12, Street.Preflop),
+                    new HandAction("888game888", HandActionType.CALL, 12, Street.Preflop),
+
+                    new HandAction("Aquasces1", HandActionType.CHECK, 0m, Street.Flop),
+                    new HandAction("COMON-JOE-JUG", HandActionType.CHECK, 0m, Street.Flop),
+                    new HandAction("888game888", HandActionType.CHECK, 0m, Street.Flop),
+
+                    new HandAction("Aquasces1", HandActionType.CHECK, 0m, Street.Turn),
+                    new HandAction("COMON-JOE-JUG", HandActionType.CHECK, 0m, Street.Turn),
+                    new HandAction("888game888", HandActionType.BET, 46m, Street.Turn),
+                    new HandAction("Aquasces1", HandActionType.FOLD, 0m, Street.Turn),
+                    new HandAction("COMON-JOE-JUG", HandActionType.FOLD, 0m, Street.Turn),
+                    new HandAction("888game888", HandActionType.UNCALLED_BET, 46m, Street.Turn),
+                    new WinningsAction("888game888", HandActionType.WINS, 30m, 0)
+                };
+
+            TestParseActions("WaitBB", expectedActions);
+        }
+
+        [Test]
         public void Straddle_Works()
         {
             List<HandAction> expectedActions = new List<HandAction>()
@@ -111,6 +142,25 @@ namespace HandHistories.Parser.UnitTests.Parsers.HandParserTests.HandActionTests
                                     };
 
             TestParseActions("StrangePlayerNames", expectedActions);
+        }
+
+        [Test]
+        public void PlayerNameWithParanthesis_Works()
+        {
+            List<HandAction> expectedActions = new List<HandAction>()
+                {
+                    new HandAction("VanishingFlames", HandActionType.SMALL_BLIND, 2m, Street.Preflop),
+                    new HandAction("cscwildcat1", HandActionType.BIG_BLIND, 4m, Street.Preflop),
+
+                    new HandAction("((((??????!!!!!!))))", HandActionType.RAISE, 8m, Street.Preflop),
+                    new HandAction("brokejew", HandActionType.FOLD, 0m, Street.Preflop),
+                    new HandAction("VanishingFlames", HandActionType.FOLD, 0m, Street.Preflop),
+                    new HandAction("cscwildcat1", HandActionType.FOLD, 0, Street.Preflop),
+                    new HandAction("((((??????!!!!!!))))", HandActionType.UNCALLED_BET, 4m, Street.Preflop),
+                    new WinningsAction("((((??????!!!!!!))))", HandActionType.WINS, 6m, 0)
+                };
+
+            TestParseActions("PlayerNameWithParanthesis", expectedActions);
         }
 
         [Test]

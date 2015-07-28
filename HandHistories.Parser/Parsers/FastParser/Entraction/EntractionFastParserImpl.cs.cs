@@ -20,6 +20,14 @@ namespace HandHistories.Parser.Parsers.FastParser.Entraction
             get { return SiteName.Entraction; }
         }
 
+        public override bool RequiresTotalPotCalculation
+        {
+            get
+            {
+                return true;
+            }
+        }
+
         public override IEnumerable<string> SplitUpMultipleHands(string rawHandHistories)
         {
             //Single Hand Identification Regex = Game #.*?Game.*?\w\w\w(\+|-)(\d+\:\d+)
@@ -63,10 +71,20 @@ namespace HandHistories.Parser.Parsers.FastParser.Entraction
             return utcTime;
         }
 
+        protected override PokerFormat ParsePokerFormat(string[] handLines)
+        {
+            return PokerFormat.CashGame;
+        }
+
         private static readonly Regex HandIdRegex = new Regex(@"(?<=Game # )\d+", RegexOptions.Compiled);
         protected override long ParseHandId(string[] handLines)
         {
             return long.Parse(HandIdRegex.Match(handLines[0]).Value);
+        }
+
+        protected override long ParseTournamentId(string[] handLines)
+        {
+            throw new NotImplementedException();
         }
 
         private static readonly Regex TableNameRegex = new Regex("(?<=Table \").*?(?=\")", RegexOptions.Compiled);
@@ -137,6 +155,11 @@ namespace HandHistories.Parser.Parsers.FastParser.Entraction
             }
 
             return Limit.FromSmallBlindBigBlind(lowLimit, highLimit, currency);
+        }
+
+        protected override Buyin ParseBuyin(string[] handLines)
+        {
+            throw new NotImplementedException();
         }
 
         public override bool IsValidHand(string[] handLines)

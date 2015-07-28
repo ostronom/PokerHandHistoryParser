@@ -8,6 +8,9 @@ using System.Text;
 using System.Windows.Forms;
 using HandHistories.Objects.GameDescription;
 using HandHistories.Parser.Parsers.Factory;
+using System.Diagnostics;
+using HandHistories.Parser.Parsers.FastParser.Base;
+using HandHistories.Parser.Parsers.Exceptions;
 
 namespace HandHistories.Parser.WindowsTestApp
 {
@@ -32,6 +35,7 @@ namespace HandHistories.Parser.WindowsTestApp
             listBoxSite.Items.Add(SiteName.Entraction);
             listBoxSite.Items.Add(SiteName.Merge);
             listBoxSite.Items.Add(SiteName.WinningPoker);
+            listBoxSite.Items.Add(SiteName.MicroGaming);
         }
 
         private void buttonParse_Click(object sender, EventArgs e)
@@ -47,13 +51,24 @@ namespace HandHistories.Parser.WindowsTestApp
 
             try
             {
-                var hands = handParser.SplitUpMultipleHands(richTextBoxHandText.Text).ToList();
+                string text = richTextBoxHandText.Text;
+
+                int parsedHands = 0;
+                Stopwatch SW = new Stopwatch();
+                SW.Start();
+
+                HandHistoryParserFastImpl fastParser = handParser as HandHistoryParserFastImpl;
+
+                var hands = fastParser.SplitUpMultipleHandsToLines(text);
                 foreach (var hand in hands)
                 {
-                    var parsedHand = handParser.ParseFullHandHistory(hand, true);    
+                    var parsedHand = fastParser.ParseFullHandHistory(hand, true);
+                    parsedHands++;
                 }
-                
-                MessageBox.Show(this, "Parsed " + hands.Count + " hands.");
+
+                SW.Stop();
+
+                MessageBox.Show(this, "Parsed " + parsedHands + " hands." + Math.Round(SW.Elapsed.TotalMilliseconds, 2) + "ms");
             }
             catch (Exception ex)
             {

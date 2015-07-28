@@ -73,9 +73,25 @@ namespace HandHistories.Parser.Parsers.Exceptions
         }
     }
 
+    public class TournamentIdException : HandParseException
+    {
+        public TournamentIdException(string handText, string message)
+            : base(handText, message)
+        {
+        }
+    }
+
     public class TableNameException : HandParseException
     {
         public TableNameException(string handText, string message)
+            : base(handText, message)
+        {
+        }
+    }
+
+    public class PokerFormatException : HandParseException
+    {
+        public PokerFormatException(string handText, string message)
             : base(handText, message)
         {
         }
@@ -105,10 +121,34 @@ namespace HandHistories.Parser.Parsers.Exceptions
         }
     }
 
+    public class BuyinException : HandParseException
+    {
+        public BuyinException(string handText, string message)
+            : base(handText, message)
+        {
+        }
+    }
+
+    public class CurrencyException : HandParseException
+    {
+        public CurrencyException(string handText, string message)
+            : base(handText, message)
+        {
+        }
+    }
+
     public class CardException :HandParseException
     {
         public CardException(string handText, string message)
             : base(handText, message)
+        {
+        }
+    }
+
+    public class RunItTwiceHandException : HandParseException
+    {
+        public RunItTwiceHandException()
+            : base("", "Do not currently support Run It Twice")
         {
         }
     }

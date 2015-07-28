@@ -13,7 +13,7 @@ namespace HandHistories.Objects.Actions
         public string PlayerName { get; private set; }
 
         [DataMember]
-        public HandActionType HandActionType { get; private set; }
+        public HandActionType HandActionType { get; protected set; }
 
         [DataMember]
         public decimal Amount { get; private set; }
@@ -22,12 +22,39 @@ namespace HandHistories.Objects.Actions
         public Street Street { get; private set; }
 
         [DataMember]
-        public int ActionNumber { get; private set; }
-        
+        public int ActionNumber { get; set; }
+
+        [DataMember]
+        public bool IsAllIn { get; private set; }
+
+        public HandAction(string playerName,
+            HandActionType handActionType,
+            decimal amount,
+            Street street,
+            int actionNumber)
+            : this(playerName, handActionType, amount, street, false, actionNumber)
+        {
+        }
+
+        public HandAction(string playerName,
+                          HandActionType handActionType,
+                          Street street,
+                          bool AllInAction = false,
+                          int actionNumber = 0)
+        {
+            Street = street;
+            HandActionType = handActionType;
+            PlayerName = playerName;
+            Amount = 0m;
+            ActionNumber = actionNumber;
+            IsAllIn = AllInAction;
+        }
+
         public HandAction(string playerName, 
                           HandActionType handActionType,                           
                           decimal amount,
-                          Street street, 
+                          Street street,
+                          bool AllInAction = false,
                           int actionNumber = 0)
         {
             Street = street;
@@ -35,6 +62,7 @@ namespace HandHistories.Objects.Actions
             PlayerName = playerName;
             Amount = GetAdjustedAmount(amount, handActionType);
             ActionNumber = actionNumber;
+            IsAllIn = AllInAction;
         }
 
         public override int GetHashCode()
@@ -52,7 +80,14 @@ namespace HandHistories.Objects.Actions
 
         public override string ToString()
         {
-            return GetType().Name + ": " + PlayerName + " does " + HandActionType + " for " + Amount.ToString("N2") + " on street " + Street + "";
+            string format = "{0} does {1} for {2} on street {3}{4}";
+
+            return string.Format(format,
+                PlayerName,
+                HandActionType,
+                Amount.ToString("N2"),
+                Street,
+                IsAllIn ? " and is All-In" : "");
         }
 
         public void DecreaseAmount(decimal value)
@@ -101,7 +136,7 @@ namespace HandHistories.Objects.Actions
                 case HandActionType.UNCALLED_BET:
                     return amount;
                 case HandActionType.POSTS:
-                    return amount*-1;
+                    return amount * -1;
                 case HandActionType.ANTE:
                     return amount * -1;
                 case HandActionType.WINS_THE_LOW:
@@ -110,6 +145,8 @@ namespace HandHistories.Objects.Actions
                     return 0.0M; // when someone adds to their stack it doesnt effect their winnings in the hand
                 case HandActionType.CHAT:
                     return 0.0M; // overwrite any $ talk in the chat
+                case HandActionType.JACKPOTCONTRIBUTION:
+                    return 0.0M; // does not affect pot, as it goes to a jackpot
             }
 
             throw new ArgumentException("GetAdjustedAmount: Uknown action " + type + " to have amount " + amount);
@@ -169,7 +206,22 @@ namespace HandHistories.Objects.Actions
                        HandActionType == HandActionType.POSTS;
             }
         }
-       
-        
+
+        public bool IsGameAction
+        {
+            get
+            {
+                return HandActionType == Actions.HandActionType.SMALL_BLIND ||
+                    HandActionType == Actions.HandActionType.BIG_BLIND ||
+                    HandActionType == Actions.HandActionType.ANTE ||
+                    HandActionType == Actions.HandActionType.POSTS ||
+                    HandActionType == Actions.HandActionType.BET ||
+                    HandActionType == Actions.HandActionType.CHECK ||
+                    HandActionType == Actions.HandActionType.FOLD ||
+                    HandActionType == Actions.HandActionType.ALL_IN ||
+                    HandActionType == Actions.HandActionType.CALL ||
+                    HandActionType == Actions.HandActionType.RAISE;
+            }
+        }
     }
 }

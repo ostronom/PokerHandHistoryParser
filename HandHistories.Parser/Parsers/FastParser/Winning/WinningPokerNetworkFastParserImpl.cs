@@ -60,12 +60,22 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
             return time;
         }
 
+        protected override PokerFormat ParsePokerFormat(string[] handLines)
+        {
+            return PokerFormat.CashGame;
+        }
+
         protected override long ParseHandId(string[] handLines)
         {
             //Game ID: 261402571 2/4 Braunite (Omaha)
             int endIndex = handLines[1].IndexOf(' ', GameIDStartIndex);
             long handId = long.Parse(handLines[1].Substring(GameIDStartIndex, endIndex - GameIDStartIndex));
             return handId;
+        }
+
+        protected override long ParseTournamentId(string[] handLines)
+        {
+            throw new NotImplementedException();
         }
 
         protected override string ParseTableName(string[] handLines)
@@ -134,6 +144,11 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
             decimal bigBlind = decimal.Parse(limitText.Substring(splitIndex + 1), System.Globalization.CultureInfo.InvariantCulture);
             Limit limit = Limit.FromSmallBlindBigBlind(smallBlind, bigBlind, Currency.USD);
             return limit;
+        }
+
+        protected override Buyin ParseBuyin(string[] handLines)
+        {
+            throw new NotImplementedException();
         }
 
         public override bool IsValidHand(string[] handLines)
@@ -213,14 +228,15 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
                         GetPlayerNameWithoutSpaces(actionLine);
                         
                     int actionIDIndex = actionPlayerNameStartIndex + PlayerName.Length + 1;
-                    switch (actionLine[actionIDIndex])
+                    char actionID = actionLine[actionIDIndex];
+                    switch (actionID)
                     {
                         //Player PersnicketyBeagle folds
                         case 'f':
                             actions.Add(new HandAction(PlayerName, HandActionType.FOLD, 0, currentStreet, actionNumber++));
                             break;
                         case 'r':
-                            actions.Add(new HandAction(PlayerName, HandActionType.RAISE, ParseActionAmount(actionLine), currentStreet, actionNumber++));
+                            actions.Add(new HandAction(PlayerName, HandActionType.RAISE, ParseActionAmountAfterPlayer(actionLine), currentStreet, actionNumber++));
                             break;
                             //checks or calls
                         case 'c':
@@ -231,7 +247,7 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
                             }
                             else if (actionLine[actionIDIndex + 1] == 'a')
                             {
-                                actions.Add(new HandAction(PlayerName, HandActionType.CALL, ParseActionAmount(actionLine), currentStreet, actionNumber++));
+                                actions.Add(new HandAction(PlayerName, HandActionType.CALL, ParseActionAmountAfterPlayer(actionLine), currentStreet, actionNumber++));
                             }
                             else
                             {
@@ -239,11 +255,11 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
                             }
                             break;
                         case 'b':
-                            actions.Add(new HandAction(PlayerName, HandActionType.BET, ParseActionAmount(actionLine), currentStreet, actionNumber++));
+                            actions.Add(new HandAction(PlayerName, HandActionType.BET, ParseActionAmountAfterPlayer(actionLine), currentStreet, actionNumber++));
                             break;
                         //Player PersnicketyBeagle allin (383)
                         case 'a':
-                            actions.Add(new AllInAction(PlayerName, ParseActionAmount(actionLine), currentStreet, true, actionNumber++));
+                            actions.Add(new AllInAction(PlayerName, ParseActionAmountAfterPlayer(actionLine), currentStreet, true, actionNumber++));
                             break;
                         case 'm':
                             //Player PersnicketyBeagle mucks cards
@@ -264,7 +280,7 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
                 {
                     const string UncalledBet = ") returned to ";
                     string playerName = actionLine.Substring(actionLine.IndexOf(UncalledBet) + UncalledBet.Length);
-                    actions.Add(new HandAction(playerName, HandActionType.UNCALLED_BET, ParseActionAmount(actionLine), currentStreet, actionNumber++));
+                    actions.Add(new HandAction(playerName, HandActionType.UNCALLED_BET, ParseActionAmountBeforePlayer(actionLine), currentStreet, actionNumber++));
                 }
                 else if (actionLine[0] == '-')
                 {
@@ -277,7 +293,7 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
             //------ Summary ------
             //Pot: 14.95. Rake 0.80
             //Board: [5c 8s 4h 10c 10s]
-            for (int i = ActionsStart + 3; i < handLines.Length; i++)
+            for (int i = ActionsStart + 2; i < handLines.Length; i++)
             {
                 string actionLine = handLines[i];
                 //Parse winning action
@@ -299,11 +315,38 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
             {
                 const int PlayerNameStartindex = 7;//"Player ".Length
                 string actionLine = handLines[i];
-                //Player bubblebubble wait BB
+                
                 char endChar = actionLine[actionLine.Length - 1];
-                if (endChar == '.' || endChar == 'B' || endChar == ']')
+                bool deadBet = false;
+
+                switch (endChar)
                 {
-                    return i;
+                    //Player bubblebubble wait BB
+                    case 'B':
+                        continue;//More posts can still occur
+
+                    //Player Aquasces1 received a card.
+                    case '.':
+                    //Player WP_Hero received card: [6d]
+                    case ']': 
+                        //No more posts can occur when players start reciving cards
+                        return i;
+
+                    //Player TheKunttzz posts (0.25) as a dead bet
+                    //Player TheKunttzz posts (0.50)
+                    case 't':   
+                        deadBet = true;
+                        break;
+
+                    //Player Aquasces1 has small blind (2)
+                    //Player COMON-JOE-JUG has big blind (4)
+                    //Player TheKunttzz posts (0.25)
+                    //Player TheKunttzz straddles (0.50)
+                    case ')':
+                        break;
+
+                    default:
+                        throw new HandActionException(actionLine, "Unrecognized endChar \"" + endChar + "\"");
                 }
 
                 int playerNameEndIndex = actionLine.IndexOf(" posts (");
@@ -313,27 +356,13 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
                 }
 
                 string playerName = actionLine.Substring(PlayerNameStartindex, playerNameEndIndex - PlayerNameStartindex);
-                decimal Amount = ParseActionAmount(actionLine);
+                decimal Amount = ParseActionAmountAfterPlayer(actionLine);
 
-                string actionLine2 = handLines[++i];
-                //Player bubblebubble wait BB
-                if (actionLine2.EndsWith(".") || actionLine2.EndsWith("B") || actionLine2.EndsWith("]"))
+                if (deadBet)
                 {
-                    actions.Add(new HandAction(playerName, HandActionType.POSTS, Amount, Street.Preflop, actionNumber++));
-                    return i;
+                    Amount += ParseActionAmountAfterPlayer(handLines[++i]);
                 }
 
-                playerNameEndIndex = actionLine2.IndexOf(" posts (");
-                string playerName2 = actionLine2.Substring(PlayerNameStartindex, playerNameEndIndex - PlayerNameStartindex);
-
-                if (playerName2 == playerName)
-                {
-                    Amount += ParseActionAmount(actionLine2);
-                }
-                //Player TheKunttzz posts (0.25) as a dead bet
-                //Player TheKunttzz posts (0.50)
-                //or
-                //Player TheKunttzz posts (0.50)
                 actions.Add(new HandAction(playerName, HandActionType.POSTS, Amount, Street.Preflop, actionNumber++));
             }
             throw new Exception("Did not find start of Dealing of cards");
@@ -436,32 +465,50 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
         {
             int playerNameEndIndex = GetPlayerNameEndIndex(bbPost);
             string PlayerName = bbPost.Substring(actionPlayerNameStartIndex, playerNameEndIndex - actionPlayerNameStartIndex);
-            return new HandAction(PlayerName, HandActionType.SMALL_BLIND, ParseActionAmount(bbPost), Street.Preflop, 0);
+            return new HandAction(PlayerName, HandActionType.SMALL_BLIND, ParseActionAmountAfterPlayer(bbPost), Street.Preflop, 0);
         }
 
         private HandAction ParseBigBlind(string bbPost)
         {
             int playerNameEndIndex = GetPlayerNameEndIndex(bbPost);
             string PlayerName = bbPost.Substring(actionPlayerNameStartIndex, playerNameEndIndex - actionPlayerNameStartIndex);
-            return new HandAction(PlayerName, HandActionType.BIG_BLIND, ParseActionAmount(bbPost), Street.Preflop, 1);
+            return new HandAction(PlayerName, HandActionType.BIG_BLIND, ParseActionAmountAfterPlayer(bbPost), Street.Preflop, 1);
         }
 
         private HandAction ParseSmallBlindWithSpaces(string sbPost, PlayerList players)
         {
             string PlayerName = GetPlayerNameWithSpaces(sbPost, players);
-            return new HandAction(PlayerName, HandActionType.SMALL_BLIND, ParseActionAmount(sbPost), Street.Preflop, 0);
+            return new HandAction(PlayerName, HandActionType.SMALL_BLIND, ParseActionAmountAfterPlayer(sbPost), Street.Preflop, 0);
         }
 
         private HandAction ParseBigBlindWithSpaces(string bbPost, PlayerList players)
         {
             string PlayerName = GetPlayerNameWithSpaces(bbPost, players);
-            return new HandAction(PlayerName, HandActionType.BIG_BLIND, ParseActionAmount(bbPost), Street.Preflop, 1);
+            return new HandAction(PlayerName, HandActionType.BIG_BLIND, ParseActionAmountAfterPlayer(bbPost), Street.Preflop, 1);
         }
 
-        private decimal ParseActionAmount(string handLine)
+        /// <summary>
+        /// The amount must be after the player name or it will fail when players have a parathesis in their name
+        /// </summary>
+        /// <param name="handLine"></param>
+        /// <returns></returns>
+        private decimal ParseActionAmountAfterPlayer(string handLine)
         {
             int endIndex = handLine.LastIndexOf(')');
             int startIndex = handLine.LastIndexOf('(', endIndex) + 1;
+            string text = handLine.Substring(startIndex, endIndex - startIndex);
+            return decimal.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// The amount must be before the player name or it will fail when players have a parathesis in their name
+        /// </summary>
+        /// <param name="handLine"></param>
+        /// <returns></returns>
+        private decimal ParseActionAmountBeforePlayer(string handLine)
+        {
+            int startIndex = handLine.IndexOf('(') + 1;
+            int endIndex = handLine.IndexOf(')', startIndex);
             string text = handLine.Substring(startIndex, endIndex - startIndex);
             return decimal.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
         }
@@ -531,6 +578,13 @@ namespace HandHistories.Parser.Parsers.FastParser.Winning
                 bool receivingCards = false;
                 int NameEndIndex;
                 string playerName;
+
+                //Uncalled bet (20) returned to zz7
+                if (sitOutLine[0] == 'U')
+                {
+                    break;
+                }
+
                 switch (sitOutLine[sitOutLine.Length - 1])
                 {
                     //Player bubblebubble received card: [2h]

@@ -22,9 +22,17 @@ namespace HandHistories.Parser.Parsers.FastParser.Merge
             get { return SiteName.Merge; }
         }
 
-        public override bool RequresAdjustedRaiseSizes
+        public override bool RequiresAdjustedRaiseSizes
         {
             get { return true; }
+        }
+
+        public override bool RequiresTotalPotCalculation
+        {
+            get
+            {
+                return true;
+            }
         }
 
         protected XDocument GetXDocumentFromLines(string[] handLines)
@@ -127,6 +135,11 @@ namespace HandHistories.Parser.Parsers.FastParser.Merge
             }
         }
 
+        protected override PokerFormat ParsePokerFormat(string[] handLines)
+        {
+            return PokerFormat.CashGame;
+        }
+
         // For now (4/17/2012) only need Game # in Miner and using Regexes. Will convert to faster mechanism soon.
         private static Regex HandIdRegex = new Regex("(?<=game id=\")[0-9]+[-][0-9]+", RegexOptions.Compiled);
         protected override long ParseHandId(string[] handLines)
@@ -141,6 +154,11 @@ namespace HandHistories.Parser.Parsers.FastParser.Merge
             }
 
             throw new HandIdException(handLines[1], "Couldn't find handid");
+        }
+
+        protected override long ParseTournamentId(string[] handLines)
+        {
+            throw new NotImplementedException();
         }
 
         protected override string ParseTableName(string[] handLines)
@@ -251,6 +269,11 @@ namespace HandHistories.Parser.Parsers.FastParser.Merge
             return Limit.FromSmallBlindBigBlind(decimal.Parse(smallBlindString, System.Globalization.CultureInfo.InvariantCulture),
                                                 decimal.Parse(bigBlindString, System.Globalization.CultureInfo.InvariantCulture),
                                                 Currency.USD);
+        }
+
+        protected override Buyin ParseBuyin(string[] handLines)
+        {
+            throw new NotImplementedException();
         }
 
         public override bool IsValidHand(string[] handLines)

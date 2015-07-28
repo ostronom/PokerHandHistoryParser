@@ -1,23 +1,25 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Configuration;
+using System.Globalization;
 using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
 using HandHistories.Objects.Actions;
 using HandHistories.Objects.Cards;
 using HandHistories.Objects.GameDescription;
-using HandHistories.Objects.Interfaces;
 using HandHistories.Objects.Players;
 using HandHistories.Parser.Parsers.Exceptions;
 using HandHistories.Parser.Parsers.FastParser.Base;
 using HandHistories.Parser.Utils.Time;
 using HandHistories.Parser.Utils.Extensions;
+using HandHistories.Parser.Utils.Strings;
+using System.Globalization;
 
 namespace HandHistories.Parser.Parsers.FastParser._888
 {
-    sealed class Poker888FastParserImpl : HandHistoryParserFastImpl
+    public sealed class Poker888FastParserImpl : HandHistoryParserFastImpl
     {
+        static readonly CultureInfo invariant = CultureInfo.InvariantCulture;
+
         public override SiteName SiteName
         {
             get { return SiteName.Pacific; }
@@ -27,6 +29,19 @@ namespace HandHistories.Parser.Parsers.FastParser._888
         {
             get { return true; }
         }
+
+        public override bool RequiresTotalPotCalculation
+        {
+            get { return true; }
+        }
+
+        private static readonly NumberFormatInfo NumberFormatInfo = new NumberFormatInfo
+        {
+            NegativeSign = "-",
+            CurrencyDecimalSeparator = ".",
+            CurrencyGroupSeparator = ",",
+            CurrencySymbol = "$"
+        };
 
         public override IEnumerable<string> SplitUpMultipleHands(string rawHandHistories)
         {
@@ -61,10 +76,20 @@ namespace HandHistories.Parser.Parsers.FastParser._888
             return utcTime;
         }
 
+        protected override PokerFormat ParsePokerFormat(string[] handLines)
+        {
+            return PokerFormat.CashGame;
+        }
+
         private static readonly Regex HandIdRegex = new Regex(@"(?<=#Game No \: )\d+", RegexOptions.Compiled);
         protected override long ParseHandId(string[] handLines)
         {
             return long.Parse(HandIdRegex.Match(handLines[0]).Value);
+        }
+
+        protected override long ParseTournamentId(string[] handLines)
+        {
+            throw new NotImplementedException();
         }
 
         private static readonly Regex TableNameRegex = new Regex(@"(?<=Table ).*$", RegexOptions.Compiled);
@@ -103,12 +128,16 @@ namespace HandHistories.Parser.Parsers.FastParser._888
         protected override GameType ParseGameType(string[] handLines)
         {
             string gameTypeString = GameTypeRegex.Match(handLines[2]).Value;
+            gameTypeString = gameTypeString.Replace(" Jackpot table", "");
             switch (gameTypeString)
             {
                 case "No Limit Holdem":
+                case "No Limit Holdem Jackpot table":
                     return GameType.NoLimitHoldem;
                 case "Fix Limit Holdem":
                     return GameType.FixedLimitHoldem;
+                case "Pot Limit Holdem":
+                    return GameType.PotLimitHoldem;     
                 case "Pot Limit Omaha":
                     return GameType.PotLimitOmaha;      
                 case "No Limit Omaha":
@@ -116,7 +145,7 @@ namespace HandHistories.Parser.Parsers.FastParser._888
                 case "Pot Limit OmahaHL":
                     return GameType.PotLimitOmahaHiLo;
                 default:                    
-                    throw new NotImplementedException("Unrecognized game type " + gameTypeString ?? "NULL");
+                    throw new NotImplementedException("Unrecognized game type " + gameTypeString);
             }
         }
 
@@ -132,6 +161,8 @@ namespace HandHistories.Parser.Parsers.FastParser._888
 
             // the min buyin for standard table is > 30bb, so this should work in most cases
             // furthermore if on a regular table the average stack is < 17.5, the play is just like on a push fold table and vice versa
+            bool isjackPotTable = handLines[2].Contains(" Jackpot table");
+           
             var playerList = ParsePlayers(handLines);
             var limit = ParseLimit(handLines);
 
@@ -152,22 +183,46 @@ namespace HandHistories.Parser.Parsers.FastParser._888
 
             if (tableStack / limit.BigBlind / playerList.Count <= 17.5m)
             {
+                if (isjackPotTable)
+                {
+                    return TableType.FromTableTypeDescriptions(TableTypeDescription.PushFold, TableTypeDescription.Jackpot);
+                }
                 return TableType.FromTableTypeDescriptions(TableTypeDescription.PushFold);
             }
-            return TableType.FromTableTypeDescriptions(TableTypeDescription.Regular);
+            if (isjackPotTable)
+            {
+                return TableType.FromTableTypeDescriptions(TableTypeDescription.Jackpot);
+            }
+            else
+            {
+                return TableType.FromTableTypeDescriptions(TableTypeDescription.Regular);
+            }
         }
 
-        private static readonly Regex LowLimitRegex = new Regex(@"([\d,]+|[\d,]+\.\d+)(?=/)", RegexOptions.Compiled);
-        private static readonly Regex HighLimitRegex = new Regex(@"(?<=/.)([\d,]+)(\.\d+){0,1}", RegexOptions.Compiled);
         protected override Limit ParseLimit(string[] handLines)
         {
-            string lowLimitString = LowLimitRegex.Match(handLines[2]).Value;
-            string highLimitString = HighLimitRegex.Match(handLines[2]).Value;
+            string line = handLines[2];
 
-            decimal lowLimit = decimal.Parse(lowLimitString, System.Globalization.CultureInfo.InvariantCulture);
-            decimal highLimit = decimal.Parse(highLimitString, System.Globalization.CultureInfo.InvariantCulture);
+            int LimitEndIndex = line.IndexOf(" Blinds", StringComparison.Ordinal);
+            string limitString = line.Remove(LimitEndIndex)
+                .Replace(" ", "")
+                .Replace("$", "")
+                ;
+
+            int splitIndex = limitString.IndexOf('/');
+
+            string lowLimitString = limitString.Remove(splitIndex);
+            string highLimitString = limitString.Substring(splitIndex + 1);
+
+            decimal lowLimit = ParseAmount(lowLimitString);
+            decimal highLimit = ParseAmount(highLimitString);
 
             return Limit.FromSmallBlindBigBlind(lowLimit, highLimit, Currency.USD);
+        }
+
+        protected override Buyin ParseBuyin(string[] handLines)
+        {
+            throw new NotImplementedException();
         }
 
         public override bool IsValidHand(string[] handLines)
@@ -178,6 +233,13 @@ namespace HandHistories.Parser.Parsers.FastParser._888
         public override bool IsValidOrCancelledHand(string[] handLines, out bool isCancelled)
         {
             isCancelled = false;
+
+            var seatedPlayersLine = handLines[5];
+            if (seatedPlayersLine[seatedPlayersLine.Length - 1] == '1')
+            {
+                isCancelled = true;
+            }
+
             return IsValidHand(handLines);
         }
 
@@ -243,7 +305,7 @@ namespace HandHistories.Parser.Parsers.FastParser._888
                     if (char.IsDigit(handLine[handLine.Length - 3]))
                     {                        
                         string amountString = handLine.Substring(openSquareIndex + 1, handLine.Length - openSquareIndex - 1 - 1);
-                        decimal amount = decimal.Parse(amountString.Replace("$", "").Replace(" ", "").Replace(",", ""), System.Globalization.CultureInfo.InvariantCulture);
+                        decimal amount = ParseAmount(amountString);
                         
                         string playerName = handLine.Substring(0, openSquareIndex - 11);
 
@@ -272,25 +334,37 @@ namespace HandHistories.Parser.Parsers.FastParser._888
                 {
                     int openSquareIndex = handLine.LastIndexOf('[');
                     string amountString = handLine.Substring(openSquareIndex + 1, handLine.Length - openSquareIndex - 1 - 1);
-                    decimal amount = decimal.Parse(amountString.Replace("$", "").Replace(" ", "").Replace(",", ""), System.Globalization.CultureInfo.InvariantCulture);
+
+                    decimal amount = ParseAmount(amountString);
 
                     string action = handLine.Substring(openSquareIndex - 8, 7);
 
                     if (currentStreet == Street.Preflop)
                     {
-                        if (action.Equals("l blind")) // small blind
+                        if (action.Equals("l blind", StringComparison.Ordinal)) // small blind
                         {
                             string playerName = handLine.Substring(0, openSquareIndex - 19);
+                            amount = ParseAmount(amountString);
                             handActions.Add(new HandAction(playerName, HandActionType.SMALL_BLIND, amount, currentStreet));
                             continue;
                         }
-                        else if (action.Equals("g blind")) // big blind
+                        else if (action.Equals("g blind", StringComparison.Ordinal)) // big blind
                         {
                             string playerName = handLine.Substring(0, openSquareIndex - 17);
+                            amount = ParseAmount(amountString);
                             handActions.Add(new HandAction(playerName, HandActionType.BIG_BLIND, amount, currentStreet));
                             continue;
                         }
+                        else if(action.Equals("d blind", StringComparison.Ordinal))//dead blind
+                        {
+                            string playerName = handLine.Substring(0, openSquareIndex - 18);
+                            amount = ParseDeadBlindAmount(amountString);
+                            handActions.Add(new HandAction(playerName, HandActionType.POSTS, amount, currentStreet));
+                            continue;
+                        }
                     }
+
+                    amount = ParseAmount(amountString);
                     
                     if (action.EndsWith("raises"))
                     {
@@ -310,25 +384,50 @@ namespace HandHistories.Parser.Parsers.FastParser._888
                         handActions.Add(new HandAction(playerName, HandActionType.CALL, amount, currentStreet));
                         continue;
                     }
-                    
                 }
-                else if (handLine.EndsWith("folds"))
+                else if (handLine.FastEndsWith("folds"))
                 {
                     string playerName = handLine.Substring(0, handLine.Length - 6);
-                    handActions.Add(new HandAction(playerName, HandActionType.FOLD, 0, currentStreet));
+                    handActions.Add(new HandAction(playerName, HandActionType.FOLD, currentStreet));
                     continue;
                 }
                 else if (handLine.EndsWith("checks"))
                 {
                     string playerName = handLine.Substring(0, handLine.Length - 7);
-                    handActions.Add(new HandAction(playerName, HandActionType.CHECK, 0, currentStreet));
+                    handActions.Add(new HandAction(playerName, HandActionType.CHECK, currentStreet));
                     continue;
                 }                
 
                 throw new HandActionException(handLine, "Unknown handline.");
             }
 
-            return handActions;
+            return FixUncalledBets(handActions, null, null);
+        }
+
+        private static decimal ParseAmount(string amountString)
+        {
+            // this split helps us parsing dead posts like [$0.10 + $0.05]
+            var splittedAmounts = amountString.Split('+');
+            var result = 0.0m;
+
+            foreach (var amount in splittedAmounts)
+            {
+                result += decimal.Parse(amount, NumberStyles.AllowCurrencySymbol | NumberStyles.Number, NumberFormatInfo);
+            }
+
+            return result;
+        }
+
+        static decimal ParseDeadBlindAmount(string amountString)
+        {
+            int plusIndex = amountString.IndexOf('+');
+            string amountStr1 = amountString.Remove(plusIndex);
+            string amountStr2 = amountString.Substring(plusIndex + 1);
+
+            decimal amount1 = ParseAmount(amountStr1);
+            decimal amount2 = ParseAmount(amountStr2);
+
+            return amount1 + amount2;
         }
 
         protected override PlayerList ParsePlayers(string[] handLines)
@@ -349,7 +448,7 @@ namespace HandHistories.Parser.Parsers.FastParser._888
 
                 int seat = int.Parse(handLine.Substring(5, colonIndex - 5));
                 string playerName = handLine.Substring(colonIndex + 2, openParenIndex - colonIndex - 3);
-                decimal amount = decimal.Parse(handLine.Substring(openParenIndex + 3, handLine.Length - openParenIndex - 3 - 2), System.Globalization.CultureInfo.InvariantCulture);
+                decimal amount = ParseAmount(handLine.Substring(openParenIndex + 3, handLine.Length - openParenIndex - 3 - 2));
 
                 playerList.Add(new Player(playerName, amount, seat));
             }
@@ -436,6 +535,97 @@ namespace HandHistories.Parser.Parsers.FastParser._888
                 }
             }
             return null;
+        }
+
+        private List<HandAction> FixUncalledBets(List<HandAction> handActions, decimal? totalPot, decimal? rake)
+        {
+            // Pacific does not correctly return uncalled bets, sometimes declaring them as winnings
+            // as we calculate the rake manually, we need to make sure uncalledbets are declared correctly
+
+            // this fix only takes place when the TotalPot - Rake != Winnings
+            if (totalPot != null && rake != null)
+            {
+                if (totalPot - rake == handActions.Where(a => a.IsWinningsAction).Sum(a => a.Amount))
+                    return handActions;
+            }
+
+            if (handActions.Sum(a => a.Amount) == 0m)
+                return handActions;
+
+
+            var playerActions = handActions.Where(a => !a.IsWinningsAction
+                                                  && !a.HandActionType.Equals(HandActionType.SHOW)
+                                                  && !a.HandActionType.Equals(HandActionType.MUCKS))
+                                         .GroupBy(p => p.PlayerName)
+                                         .Select(s => s.Select(a => a).ToList());
+
+            HandAction handActionToAdd = null;
+            foreach (var actions in playerActions)
+            {
+                var lastAction = actions[actions.Count - 1];
+
+                if (lastAction.HandActionType == HandActionType.BET || lastAction.HandActionType == HandActionType.RAISE)
+                {
+                    var totalInvestedAmount = handActions.Where(a => a.PlayerName.Equals(lastAction.PlayerName) && !a.IsWinningsAction).Sum(a => a.Amount);
+
+                    var deadMoneyAction = handActions.FirstOrDefault(a => a.PlayerName.Equals(lastAction.PlayerName) && a.HandActionType.Equals(HandActionType.POSTS));
+
+                    if (deadMoneyAction != null && deadMoneyAction.Amount < handActions.First(a => a.HandActionType.Equals(HandActionType.BIG_BLIND)).Amount)
+                    {
+                        totalInvestedAmount -= handActions.First(a => a.HandActionType.Equals(HandActionType.SMALL_BLIND)).Amount;
+                    }
+
+
+                    var totalInvestedAmountsByOtherPlayers = handActions.Where(a => a.PlayerName != lastAction.PlayerName && !a.IsWinningsAction)
+                                                                        .GroupBy(a => a.PlayerName)
+                                                                        .Select(p => new
+                                                                                     {
+                                                                                         PlayerName = p.Key,
+                                                                                         Invested = p.Sum(x => x.Amount)
+                                                                                     });
+
+                    var totalInvestedAmountOtherPlayer = 0.0m;
+                    foreach (var investedByPlayer in totalInvestedAmountsByOtherPlayers)
+                    {
+                        var invested = investedByPlayer.Invested;
+                        deadMoneyAction = handActions.FirstOrDefault(a => a.PlayerName.Equals(investedByPlayer.PlayerName) && a.HandActionType.Equals(HandActionType.POSTS));
+
+                        if (deadMoneyAction != null && deadMoneyAction.Amount < handActions.First(a => a.HandActionType.Equals(HandActionType.BIG_BLIND)).Amount)
+                        {
+                            invested -= handActions.First(a => a.HandActionType.Equals(HandActionType.SMALL_BLIND)).Amount;
+                        }
+
+                        if (invested < totalInvestedAmountOtherPlayer)
+                        {
+                            totalInvestedAmountOtherPlayer = invested;
+                        }
+                    }
+
+
+                    if (totalInvestedAmountOtherPlayer > totalInvestedAmount)
+                    {
+                        var uncalledBet = Math.Abs(totalInvestedAmount - totalInvestedAmountOtherPlayer);
+
+                        // only add this if we don't have a similar WIN line
+                        var winAction = handActions.FirstOrDefault(h => h.PlayerName == lastAction.PlayerName
+                                                                     && h.HandActionType == HandActionType.WINS
+                                                                     && h.Amount == uncalledBet);
+
+                        if (winAction != null && handActions.Count(h => h.IsWinningsAction) > 1)
+                        {
+                            handActions.Remove(winAction);
+                        }
+
+                        handActionToAdd = (new HandAction(lastAction.PlayerName, HandActionType.UNCALLED_BET, uncalledBet, Street.Showdown));
+                    }
+                }
+            }
+
+            // only add the uncalled bet if we had a caller
+            if (handActionToAdd != null)
+                handActions.Add(handActionToAdd);
+
+            return handActions;
         }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using HandHistories.Objects.Cards;
 using HandHistories.Objects.Players;
 using NUnit.Framework;
+using System.Collections.Generic;
 
 namespace HandHistories.Parser.UnitTests.Parsers.HandParserTests.Players
 {
@@ -10,6 +11,59 @@ namespace HandHistories.Parser.UnitTests.Parsers.HandParserTests.Players
     {
         public HandParserPlayersTestsPokerStarsImpl() : base("PokerStars")
         {
+        }
+
+        [Test]
+        public void ParsePlayers_ShowWithoutShowdown()
+        {
+            var expected = new PlayerList(new List<Player>()
+            {
+                new Player("TheHoboKing", 187.76m, 1),
+                new Player("gio_pot7", 1312.61m, 2),
+                new Player("princepemega", 237.45m, 3),
+                new Player("Chip-phage", 400m, 4)
+                {
+                    HoleCards = HoleCards.ForOmaha(
+                    new Card('2', 'c'), 
+                    new Card('7', 'd'),
+                    new Card('8', 'c'),
+                    new Card('Q', 'h'))
+                },
+                new Player("YoungAKGun", 657.14m, 5),
+                new Player("Zsipali", 432.12m, 6),
+            });
+
+            TestParsePlayers("ShowWithoutShowdown", expected);
+        }
+
+        [Test]
+        public void ParsePlayers_RunItTwice()
+        {
+            var expected = new PlayerList(new List<Player>()
+            {
+                new Player("jedimaster82", 1000, 1),
+                new Player("OneMoreSpin", 1859.80m, 2),
+                new Player("FLATC@T", 2000m, 3)
+                {
+                    HoleCards = HoleCards.ForOmaha(
+                    new Card('J', 'd'), 
+                    new Card('T', 's'),
+                    new Card('Q', 'd'),
+                    new Card('Q', 's'))
+                },
+                new Player("KENZA_MILOU", 1000m, 4)
+                {
+                    HoleCards = HoleCards.ForOmaha(
+                    new Card('7', 's'), 
+                    new Card('9', 's'),
+                    new Card('7', 'h'),
+                    new Card('J', 'h'))
+                },
+                new Player("Legheliel", 2000m, 5),
+                new Player("danfiu", 2000m, 6),
+            });
+
+            TestParsePlayers("RunItTwice", expected);
         }
 
         protected override PlayerList ExpectedNoHoleCardsPlayers
